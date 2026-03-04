@@ -4,31 +4,35 @@ const Post = require("../models/Post");
 module.exports = {
   getProfile: async (req, res) => {
     try {
+      // Mongoose 9: find() still returns a Query; await to resolve
       const posts = await Post.find({ user: req.user.id });
       res.render("profile.ejs", { posts: posts, user: req.user });
     } catch (err) {
-      console.log(err);
+      console.error("Error fetching profile:", err);
+      res.status(500).send("Internal Server Error");
     }
   },
+
   getFeed: async (req, res) => {
     try {
       const posts = await Post.find().sort({ createdAt: "desc" }).lean();
       res.render("feed.ejs", { posts: posts });
     } catch (err) {
-      console.log(err);
+      console.error("Error fetching feed:", err);
     }
   },
+
   getPost: async (req, res) => {
     try {
       const post = await Post.findById(req.params.id);
       res.render("post.ejs", { post: post, user: req.user });
     } catch (err) {
-      console.log(err);
+      console.error("Error fetching post:", err);
     }
   },
+
   createPost: async (req, res) => {
     try {
-      // Upload image to cloudinary
       const result = await cloudinary.uploader.upload(req.file.path);
 
       await Post.create({
@@ -42,34 +46,44 @@ module.exports = {
       console.log("Post has been added!");
       res.redirect("/profile");
     } catch (err) {
-      console.log(err);
+      console.error("Error creating post:", err);
     }
   },
+
   likePost: async (req, res) => {
     try {
+      // findOneAndUpdate is still preferred in v9 for atomic increments
       await Post.findOneAndUpdate(
         { _id: req.params.id },
-        {
-          $inc: { likes: 1 },
-        }
+        { $inc: { likes: 1 } }
       );
       console.log("Likes +1");
       res.redirect(`/post/${req.params.id}`);
     } catch (err) {
-      console.log(err);
+      console.error("Error liking post:", err);
     }
   },
+
   deletePost: async (req, res) => {
     try {
-      // Find post by id
-      let post = await Post.findById({ _id: req.params.id });
-      // Delete image from cloudinary
+      // 1. Find post to get Cloudinary ID
+      const post = await Post.findById(req.params.id);
+
+      if (!post) {
+        return res.redirect("/profile");
+      }
+
+      // 2. Delete image from cloudinary
       await cloudinary.uploader.destroy(post.cloudinaryId);
-      // Delete post from db
-      await Post.remove({ _id: req.params.id });
+
+      // 3. Delete from DB (Mongoose 9 Fix)
+      // .remove() was removed in Mongoose 7/8. Use deleteOne() instead.
+      await Post.deleteOne({ _id: req.params.id });
+
       console.log("Deleted Post");
       res.redirect("/profile");
     } catch (err) {
+      console.error("Error deleting post:", err);
       res.redirect("/profile");
     }
   },
