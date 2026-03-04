@@ -45,15 +45,16 @@ exports.postLogin = (req, res, next) => {
 };
 
 exports.logout = (req, res) => {
-  req.logout(() => {
-    console.log('User has logged out.')
+  req.logout((err) => {
+    if (err) return next(err)
+
+    req.session.destroy((err) => {
+      if (err)
+        console.log("Error : Failed to destroy the session during logout.", err);
+      req.user = null;
+      res.redirect("/");
+    })
   })
-  req.session.destroy((err) => {
-    if (err)
-      console.log("Error : Failed to destroy the session during logout.", err);
-    req.user = null;
-    res.redirect("/");
-  });
 };
 
 exports.getSignup = (req, res) => {
@@ -65,7 +66,7 @@ exports.getSignup = (req, res) => {
   });
 };
 
-exports.postSignup = (req, res, next) => {
+exports.postSignup = async (req, res, next) => {
   const validationErrors = [];
   if (!validator.isEmail(req.body.email))
     validationErrors.push({ msg: "Please enter a valid email address." });
@@ -80,39 +81,40 @@ exports.postSignup = (req, res, next) => {
     req.flash("errors", validationErrors);
     return res.redirect("../signup");
   }
+
   req.body.email = validator.normalizeEmail(req.body.email, {
     gmail_remove_dots: false,
   });
 
-  const user = new User({
-    userName: req.body.userName,
-    email: req.body.email,
-    password: req.body.password,
-  });
+  try {
+    // Mongoose 9: await findOne instead of callback
+    const existingUser = await User.findOne({
+      $or: [{ email: req.body.email }, { userName: req.body.userName }],
+    });
 
-  User.findOne(
-    { $or: [{ email: req.body.email }, { userName: req.body.userName }] },
-    (err, existingUser) => {
-      if (err) {
-        return next(err);
-      }
-      if (existingUser) {
-        req.flash("errors", {
-          msg: "Account with that email address or username already exists.",
-        });
-        return res.redirect("../signup");
-      }
-      user.save((err) => {
-        if (err) {
-          return next(err);
-        }
-        req.logIn(user, (err) => {
-          if (err) {
-            return next(err);
-          }
-          res.redirect("/profile");
-        });
+    if (existingUser) {
+      req.flash("errors", {
+        msg: "Account with that email address or username already exists.",
       });
+      return res.redirect("../signup");
     }
-  );
+
+    const user = new User({
+      userName: req.body.userName,
+      email: req.body.email,
+      password: req.body.password,
+    });
+
+    // Mongoose 9: await save instead of callback
+    await user.save();
+
+    // Passport still uses a callback for logIn
+    req.logIn(user, (err) => {
+      if (err) return next(err);
+      res.redirect("/profile");
+    });
+
+  } catch (err) {
+    return next(err);
+  }
 };

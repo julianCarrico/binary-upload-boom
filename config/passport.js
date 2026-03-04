@@ -1,12 +1,10 @@
 const LocalStrategy = require("passport-local").Strategy;
-const mongoose = require("mongoose");
 const User = require("../models/User");
 
 module.exports = function (passport) {
   passport.use(
     new LocalStrategy({ usernameField: "email" }, async (email, password, done) => {
       try {
-        // Mongoose 9: await User.findOne
         const user = await User.findOne({ email: email.toLowerCase() });
 
         if (!user) {
@@ -14,17 +12,17 @@ module.exports = function (passport) {
         }
         if (!user.password) {
           return done(null, false, {
-            msg: "Your account was registered using a sign-in provider. To enable password login, sign in using a provider, and then set a password under your user profile.",
+            msg: "Your account was registered using a sign-in provider.",
           });
         }
 
-        // Check password (Note: check your User model; if comparePassword 
-        // was updated to return a promise, you should await it here)
-        user.comparePassword(password, (err, isMatch) => {
-          if (err) return done(err);
-          if (isMatch) return done(null, user);
-          return done(null, false, { msg: "Invalid email or password." });
-        });
+        // FIXED: Await the promise from the User model instead of using a callback
+        const isMatch = await user.comparePassword(password);
+
+        if (isMatch) {
+          return done(null, user);
+        }
+        return done(null, false, { msg: "Invalid email or password." });
       } catch (err) {
         return done(err);
       }
@@ -35,7 +33,6 @@ module.exports = function (passport) {
     done(null, user.id);
   });
 
-  // THE FIX: findById no longer accepts a callback
   passport.deserializeUser(async (id, done) => {
     try {
       const user = await User.findById(id);
